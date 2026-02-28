@@ -1,7 +1,7 @@
 
 
 ### **Nitin Kumar**
-**Role:** Team Leader
+**Role:** Team Leader and Machine Learning Engineer
 * Spearheads project strategy, task delegation, and cross-functional coordination to ensure timely milestone delivery.
 
 ### **Saurabh Singh**
