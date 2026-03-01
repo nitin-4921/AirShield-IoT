@@ -1,10 +1,15 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@theme {
+  --color-primary: #0df280;
+  --color-background-light: #f5f8f7;
+  --color-background-dark: #000000;
+  --font-display: "Space Grotesk", sans-serif;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+}
 
 :root {
-  --primary: #0df280;
-  --background-light: #f5f8f7;
   --background-dark: #000000;
 }
 
@@ -28,7 +33,7 @@ body {
 
 .grid-bg {
   background-image: linear-gradient(rgba(13, 242, 128, 0.05) 1px, transparent 1px),
-                    linear-gradient(90px, rgba(13, 242, 128, 0.05) 1px, transparent 1px);
+    linear-gradient(90px, rgba(13, 242, 128, 0.05) 1px, transparent 1px);
   background-size: 40px 40px;
   perspective: 1000px;
 }
@@ -39,7 +44,7 @@ body {
   left: 0;
   right: 0;
   height: 40%;
-  background-image: 
+  background-image:
     linear-gradient(to bottom, transparent, #000),
     linear-gradient(rgba(13, 242, 128, 0.15) 1px, transparent 1px),
     linear-gradient(90deg, rgba(13, 242, 128, 0.15) 1px, transparent 1px);
