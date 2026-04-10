@@ -19,8 +19,35 @@ const getAqiConfig = (aqi) => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('Dashboard');
-  const [currentLocIdx, setCurrentLocIdx] = useState(3);
-  const data = LOCATIONS[currentLocIdx];
+  const [currentLocIdx, setCurrentLocIdx] = useState(0);
+  const [realTimeData, setRealTimeData] = useState(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await fetch('http://localhost:3000/aqi');
+        if (res.ok) {
+          const json = await res.json();
+          setRealTimeData(json);
+        }
+      } catch (err) {
+        console.error('Fetch error:', err);
+      }
+    };
+    fetchData();
+    const interval = setInterval(fetchData, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const baseData = LOCATIONS[currentLocIdx];
+  const data = realTimeData ? {
+    ...baseData,
+    aqi: realTimeData.aqi,
+    temp: Math.round(realTimeData.temperature),
+    humidity: Math.round(realTimeData.humidity),
+    pm25: realTimeData.smoke,
+  } : baseData;
+
   const aqiConfig = getAqiConfig(data.aqi);
 
   // Auto-cycle locations only on Dashboard
