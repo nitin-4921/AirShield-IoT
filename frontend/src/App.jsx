@@ -21,6 +21,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('Dashboard');
   const [currentLocIdx, setCurrentLocIdx] = useState(0);
   const [realTimeData, setRealTimeData] = useState(null);
+  const [predictionData, setPredictionData] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [showSearch, setShowSearch] = useState(false);
@@ -56,6 +57,22 @@ export default function App() {
             }
             return json;
           });
+
+          // Fetch AQI prediction based on new sensor data
+          const predRes = await fetch('http://localhost:3000/predict', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              temp: json.temperature,
+              humidity: json.humidity,
+              mq135: json.smoke,
+              pm25: json.smoke // Using smoke as proxy for PM2.5 if missing
+            })
+          });
+          if (predRes.ok) {
+            const predJson = await predRes.json();
+            setPredictionData(predJson);
+          }
         }
       } catch (err) {
         console.error('Fetch error:', err);
@@ -87,6 +104,7 @@ export default function App() {
     temp: Math.round(realTimeData.temperature),
     humidity: Math.round(realTimeData.humidity),
     pm25: realTimeData.smoke,
+    predictedAqi: predictionData ? predictionData.aqi : null,
   } : baseData;
 
   const aqiConfig = getAqiConfig(data.aqi);
@@ -253,7 +271,7 @@ function DashboardView({ data, aqiConfig }) {
           <InfoTile icon={<Droplets />} value={`${data.humidity}%`} label="Humidity" />
           <InfoTile icon={<Thermometer />} value={`${data.temp}°C`} label="Temp" />
           <InfoTile icon={<Wind />} value={data.wind} label="Wind" suffix="mph" />
-          <InfoTile icon={<Activity />} value={data.aqi ? Math.max(0, Math.round(data.aqi + (data.pm25 - 50) * 0.2)) : '--'} label="AQI IN 30M" />
+          <InfoTile icon={<Activity />} value={data.predictedAqi ? Math.round(data.predictedAqi) : '--'} label="AQI IN 30M" />
         </div>
       </div>
 

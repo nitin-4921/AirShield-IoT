@@ -6,6 +6,7 @@ const NodeCache = require('node-cache');
 
 const app = express();
 app.use(cors());
+app.use(express.json());
 
 // 5-minute cache for external API calls
 const cache = new NodeCache({ stdTTL: 300 });
@@ -278,6 +279,36 @@ app.get('/aqi-history', async (req, res) => {
         res.status(500).json({ error: 'Failed to fetch AQI history: ' + error.message });
     }
 });
+
+
+app.post('/predict', async (req, res) => {
+    try {
+        const { temp, humidity, mq135, pm25 } = req.body;
+        const futureDate = new Date(Date.now() + 30 * 60 * 1000);
+        const currentHour = futureDate.getHours();
+
+        const mlResponse = await axios.post(process.env.AIRSHEILD_MODAL_API, {
+            hour: currentHour,
+            temp: temp,
+            humidity: humidity,
+            mq135: mq135,
+            pm25: pm25
+        });
+
+        const { predicted_aqi, status } = mlResponse.data;
+
+        res.json({
+            success: true,
+            aqi: predicted_aqi,
+            status: status,
+            alert: status === "Dangerous"
+        });
+    } catch (error) {
+        console.error('Error during prediction:', error.message);
+        res.status(500).json({ error: 'Failed to predict AQI: ' + error.message });
+    }
+});
+
 
 const PORT = 3000;
 app.listen(PORT, () => {
