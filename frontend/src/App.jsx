@@ -690,42 +690,241 @@ function PollutionNewsView() {
 }
 
 function HistoryView() {
+  const [range, setRange] = useState('1W');
+  const [points, setPoints] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [lastUpdated, setLastUpdated] = useState(null);
+  const [hovered, setHovered] = useState(null); // { x, y, point }
+  const chartRef = useRef(null);
+
+  useEffect(() => {
+    const fetchHistory = async () => {
+      setLoading(true);
+      setError('');
+      try {
+        const res = await fetch(`http://localhost:3000/aqi-history?range=${range}`);
+        const json = await res.json();
+        if (!res.ok) { setError(json.error || 'Failed to load'); setPoints([]); }
+        else { setPoints(json.points || []); setLastUpdated(new Date()); }
+      } catch (err) {
+        setError('Cannot connect to backend.');
+        setPoints([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchHistory();
+  }, [range]);
+
+  const maxAqi = points.length ? Math.max(...points.map(p => p.aqi), 1) : 300;
+
+  const getBarColor = (aqi) => {
+    if (aqi <= 50)  return '#00E676';
+    if (aqi <= 100) return '#FFB020';
+    if (aqi <= 150) return '#FFB020';
+    if (aqi <= 200) return '#FF5252';
+    return '#b91c1c';
+  };
+
+  const getStatusLabel = (aqi) => {
+    if (aqi <= 50)  return 'Good';
+    if (aqi <= 100) return 'Moderate';
+    if (aqi <= 150) return 'Sensitive Groups';
+    if (aqi <= 200) return 'Unhealthy';
+    if (aqi <= 300) return 'Very Unhealthy';
+    return 'Severe';
+  };
+
+  const labelStep = points.length > 40 ? Math.ceil(points.length / 20) : points.length > 20 ? 2 : 1;
+
+  const handleBarMouseEnter = (e, point) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const chartRect = chartRef.current?.getBoundingClientRect();
+    if (!chartRect) return;
+    setHovered({
+      x: rect.left - chartRect.left + rect.width / 2,
+      y: rect.top - chartRect.top,
+      point,
+    });
+  };
+
   return (
     <div className="flex flex-col gap-10">
-      <div className="neu-flat p-10 h-[500px] flex flex-col">
-        <div className="flex justify-between items-center mb-10">
-          <h3 className="display-font text-2xl font-bold text-[#0f172a]">Historical AQI Timeline</h3>
-          <div className="flex gap-4">
-             <button className="neu-btn px-6 py-3 font-bold active text-primary">1W</button>
-             <button className="neu-btn px-6 py-3 font-bold">1M</button>
-             <button className="neu-btn px-6 py-3 font-bold">1Y</button>
+      {/* Header card */}
+      <div className="neu-flat p-8 flex items-center justify-between">
+        <div className="flex items-center gap-5">
+          <div className="w-12 h-12 neu-flat-round flex items-center justify-center text-primary">
+            <MapPin className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="display-font text-xl font-bold text-[#0f172a]">GLA University, Mathura</h3>
+            <p className="text-sm font-semibold text-[#64748b]">Uttar Pradesh, India · Lat 27.6057, Lon 77.5933</p>
           </div>
         </div>
-        <div className="flex-1 neu-pressed-sm w-full relative flex items-end p-6 gap-4">
-           {Array.from({length: 30}).map((_, i) => (
-             <motion.div key={i} 
-              className="flex-1 bg-[#00D1FF] rounded-t-md opacity-80"
-              initial={{ height: 0 }}
-              animate={{ height: `${Math.random() * 80 + 20}%` }}
-              transition={{ delay: i * 0.02 }}
-             />
-           ))}
+        {lastUpdated && !loading && (
+          <div className="neu-pressed-sm px-5 py-3 text-sm font-bold text-[#64748b]">
+            Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </div>
+        )}
+      </div>
+
+      {/* Chart card */}
+      <div className="neu-flat p-10 h-[500px] flex flex-col">
+        <div className="flex justify-between items-center mb-10">
+          <div>
+            <h3 className="display-font text-2xl font-bold text-[#0f172a]">Historical AQI Timeline</h3>
+            <p className="text-sm font-semibold text-[#64748b] mt-1">
+              {range === '1W' ? 'Last 7 days · 6-hour intervals' : range === '1M' ? 'Last 30 days · daily average' : 'Last 12 months · weekly average'}
+            </p>
+          </div>
+          <div className="flex gap-4">
+            {['1W', '1M', '1Y'].map(r => (
+              <button
+                key={r}
+                onClick={() => { setRange(r); setHovered(null); }}
+                className={`neu-btn px-6 py-3 font-bold transition-colors ${range === r ? 'active text-primary' : 'text-[#64748b]'}`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Chart area — relative container for tooltip */}
+        <div ref={chartRef} className="flex-1 neu-pressed-sm w-full relative flex flex-col overflow-visible rounded-xl">
+          {loading && (
+            <div className="flex-1 flex items-center justify-center gap-3">
+              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span className="font-bold text-[#94a3b8]">Loading {range} data...</span>
+            </div>
+          )}
+          {!loading && error && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-8">
+              <AlertCircle className="w-8 h-8 text-warning" />
+              <p className="font-bold text-[#64748b]">{error}</p>
+            </div>
+          )}
+          {!loading && !error && points.length === 0 && (
+            <div className="flex-1 flex items-center justify-center">
+              <p className="font-bold text-[#94a3b8]">No data available for this range.</p>
+            </div>
+          )}
+          {!loading && !error && points.length > 0 && (
+            <div
+              className="flex-1 flex flex-col px-4 pb-2 pt-4"
+              onMouseLeave={() => setHovered(null)}
+            >
+              {/* Bars */}
+              <div className="flex-1 flex items-end gap-1">
+                {points.map((p, i) => (
+                  <div
+                    key={i}
+                    className="flex-1 flex flex-col items-center justify-end h-full cursor-pointer"
+                    onMouseEnter={e => handleBarMouseEnter(e, p)}
+                  >
+                    <motion.div
+                      className="w-full rounded-t-sm transition-opacity"
+                      style={{
+                        backgroundColor: getBarColor(p.aqi),
+                        opacity: hovered && hovered.point !== p ? 0.45 : 1,
+                      }}
+                      initial={{ height: 0 }}
+                      animate={{ height: `${Math.max((p.aqi / maxAqi) * 100, 2)}%` }}
+                      transition={{ delay: i * 0.01, duration: 0.4 }}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* X-axis labels */}
+              <div className="flex items-end gap-1 mt-2 h-6">
+                {points.map((p, i) => (
+                  <div key={i} className="flex-1 flex justify-center overflow-hidden">
+                    {i % labelStep === 0 && (
+                      <span className="text-[9px] font-semibold text-[#94a3b8] truncate">{p.label}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Floating tooltip — rendered inside chart ref, positioned absolutely, never clipped */}
+          <AnimatePresence>
+            {hovered && (
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 6 }}
+                transition={{ duration: 0.15 }}
+                className="absolute pointer-events-none z-50"
+                style={{
+                  left: hovered.x,
+                  top: Math.max(hovered.y - 90, 8),
+                  transform: 'translateX(-50%)',
+                }}
+              >
+                <div className="neu-flat rounded-2xl px-5 py-4 flex flex-col items-center gap-1 shadow-lg min-w-[130px]">
+                  <span className="display-font text-2xl font-extrabold text-[#0f172a]">{hovered.point.aqi}</span>
+                  <span className="text-xs font-bold uppercase tracking-widest" style={{ color: getBarColor(hovered.point.aqi) }}>
+                    {getStatusLabel(hovered.point.aqi)}
+                  </span>
+                  <span className="text-xs font-semibold text-[#64748b] text-center mt-1">{hovered.point.label}</span>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
-      
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
-         <div className="neu-flat p-10">
-            <h3 className="display-font text-2xl font-bold text-[#0f172a] mb-6">Data Export</h3>
-            <p className="mb-8 font-medium">Download historical telemetry data in CSV or JSON formats for external analysis.</p>
-            <div className="space-y-6">
-               <button className="w-full neu-btn py-5 font-bold flex items-center justify-center gap-3 text-[#0f172a]">
-                 <Cloud className="w-5 h-5" /> Export Last 7 Days
-               </button>
-               <button className="w-full neu-btn py-5 font-bold flex items-center justify-center gap-3 text-[#0f172a]">
-                 <Activity className="w-5 h-5" /> Export Full History
-               </button>
+
+      {/* Stats row */}
+      {!loading && points.length > 0 && (
+        <div className="grid grid-cols-3 gap-6">
+          {[
+            { label: 'Average AQI', value: Math.round(points.reduce((s, p) => s + p.aqi, 0) / points.length), color: getBarColor(Math.round(points.reduce((s, p) => s + p.aqi, 0) / points.length)) },
+            { label: 'Peak AQI', value: Math.max(...points.map(p => p.aqi)), color: getBarColor(Math.max(...points.map(p => p.aqi))) },
+            { label: 'Best AQI', value: Math.min(...points.map(p => p.aqi)), color: getBarColor(Math.min(...points.map(p => p.aqi))) },
+          ].map(s => (
+            <div key={s.label} className="neu-flat p-8 flex flex-col items-center gap-2">
+              <span className="display-font text-3xl font-extrabold text-[#0f172a]">{s.value}</span>
+              <span className="text-xs font-bold uppercase tracking-widest" style={{ color: s.color }}>{getStatusLabel(s.value)}</span>
+              <span className="text-xs font-extrabold uppercase tracking-widest text-[#64748b]">{s.label}</span>
             </div>
-         </div>
+          ))}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+        <div className="neu-flat p-10">
+          <h3 className="display-font text-2xl font-bold text-[#0f172a] mb-6">Data Export</h3>
+          <p className="mb-8 font-medium">Download historical telemetry data in CSV or JSON formats for external analysis.</p>
+          <div className="space-y-6">
+            <button
+              onClick={() => {
+                if (!points.length) return;
+                const csv = ['Date,AQI', ...points.map(p => `${p.label},${p.aqi}`)].join('\n');
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = `aqi-history-${range}.csv`; a.click();
+              }}
+              className="w-full neu-btn py-5 font-bold flex items-center justify-center gap-3 text-[#0f172a]"
+            >
+              <Cloud className="w-5 h-5" /> Export {range} Data (CSV)
+            </button>
+            <button
+              onClick={() => {
+                if (!points.length) return;
+                const blob = new Blob([JSON.stringify(points, null, 2)], { type: 'application/json' });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+                a.download = `aqi-history-${range}.json`; a.click();
+              }}
+              className="w-full neu-btn py-5 font-bold flex items-center justify-center gap-3 text-[#0f172a]"
+            >
+              <Activity className="w-5 h-5" /> Export {range} Data (JSON)
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

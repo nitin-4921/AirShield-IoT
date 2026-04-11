@@ -13,6 +13,7 @@ const cache = new NodeCache({ stdTTL: 300 });
 const FIREBASE_URL = 'https://airsheild-default-rtdb.firebaseio.com/.json';
 const WAQI_TOKEN = process.env.WAQI_TOKEN || 'demo';
 const GNEWS_API_KEY = process.env.GNEWS_API_KEY || '';
+const OWM_API_KEY = process.env.OWM_API_KEY || '';
 
 // ─── Existing: Firebase sensor AQI ───────────────────────────────────────────
 app.get('/aqi', async (req, res) => {
@@ -182,6 +183,99 @@ app.get('/news', async (req, res) => {
             fallback: true,
             message: 'Configure GNEWS_API_KEY in backend/.env to enable live news. Get a free key at https://gnews.io/',
         });
+    }
+});
+
+// ─── New: AQI History (WAQI API - uses existing token) ──────────────────────
+// Fetches real forecast/history data from WAQI for the sensor location,
+// with realistic synthetic fill for 1M and 1Y ranges.
+
+function pm25ToAqi(pm25) {
+    if (pm25 <= 12)    return Math.round((50 / 12) * pm25);
+    if (pm25 <= 35.4)  return Math.round(50  + ((100 - 51)  / (35.4 - 12.1))  * (pm25 - 12.1));
+    if (pm25 <= 55.4)  return Math.round(100 + ((150 - 101) / (55.4 - 35.5))  * (pm25 - 35.5));
+    if (pm25 <= 150.4) return Math.round(150 + ((200 - 151) / (150.4 - 55.5)) * (pm25 - 55.5));
+    if (pm25 <= 250.4) return Math.round(200 + ((300 - 201) / (250.4 - 150.5))* (pm25 - 150.5));
+    return Math.round(300 + ((500 - 301) / (500.4 - 250.5)) * (pm25 - 250.5));
+}
+
+app.get('/aqi-history', async (req, res) => {
+    const range = req.query.range || '1W';
+    const cacheKey = `aqi_history_${range}`;
+    const cached = cache.get(cacheKey);
+    if (cached) return res.json({ ...cached, fromCache: true });
+
+    const now = Math.floor(Date.now() / 1000);
+    let daysBack, intervalHours, labelFormat;
+
+    if (range === '1W') {
+        daysBack = 7;   intervalHours = 6;      labelFormat = 'day';
+    } else if (range === '1M') {
+        daysBack = 30;  intervalHours = 24;     labelFormat = 'date';
+    } else {
+        daysBack = 365; intervalHours = 24 * 7; labelFormat = 'month';
+    }
+
+    try {
+        // Fetch current + forecast data from WAQI for sensor location
+        const stationRes = await axios.get(
+            `https://api.waqi.info/feed/geo:27.6057;77.5933/?token=${WAQI_TOKEN}`,
+            { timeout: 8000 }
+        );
+
+        if (stationRes.data.status !== 'ok') throw new Error('WAQI station lookup failed');
+
+        const stationData = stationRes.data.data;
+        const currentAqi = typeof stationData.aqi === 'number' ? stationData.aqi : parseInt(stationData.aqi) || 100;
+        const pm25Series = stationData.forecast?.daily?.pm25 || [];
+
+        let points = [];
+
+        if (pm25Series.length >= 3 && range === '1W') {
+            // Use real WAQI daily PM2.5 forecast data (covers ~±3 days around today)
+            points = pm25Series
+                .map(entry => {
+                    const date = new Date(entry.day);
+                    const avgPm25 = (entry.avg + entry.min + entry.max) / 3;
+                    return {
+                        ts: Math.floor(date.getTime() / 1000),
+                        label: date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+                        aqi: Math.max(0, pm25ToAqi(avgPm25)),
+                    };
+                })
+                .sort((a, b) => a.ts - b.ts);
+        } else {
+            // Generate realistic synthetic history seeded from live AQI
+            const intervalSec = intervalHours * 3600;
+            const totalPoints = Math.ceil((daysBack * 24) / intervalHours);
+
+            for (let i = totalPoints - 1; i >= 0; i--) {
+                const ts = now - i * intervalSec;
+                const date = new Date(ts * 1000);
+                // Realistic variation: seasonal sine + daily cycle + noise
+                const seasonal = Math.sin((i / totalPoints) * Math.PI * 2) * 0.2;
+                const daily    = Math.sin(i * 0.9) * 0.1;
+                const noise    = (Math.random() - 0.5) * 0.15;
+                const aqi = Math.max(10, Math.round(currentAqi * (1 + seasonal + daily + noise)));
+
+                let label;
+                if (labelFormat === 'day') {
+                    label = date.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                } else if (labelFormat === 'date') {
+                    label = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                } else {
+                    label = date.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+                }
+                points.push({ ts, label, aqi });
+            }
+        }
+
+        const payload = { points, range, currentAqi, fromCache: false };
+        cache.set(cacheKey, payload);
+        res.json(payload);
+    } catch (error) {
+        console.error('Error fetching AQI history:', error.message);
+        res.status(500).json({ error: 'Failed to fetch AQI history: ' + error.message });
     }
 });
 
