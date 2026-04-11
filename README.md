@@ -108,6 +108,7 @@ npm run dev
 | GET | `/aqi` | Live sensor data from Firebase (AQI, temp, humidity, smoke) |
 | GET | `/world-aqi` | Top 10 most polluted cities globally (cached 5 min) |
 | GET | `/news` | Latest pollution & air quality news (cached 5 min) |
+| POST | `/predict` | Future AQI prediction (next 30 min) using ML model |
 
 ### Sample Response — `/aqi`
 
@@ -175,12 +176,38 @@ const FIREBASE_URL = 'https://your-project-default-rtdb.firebaseio.com/.json';
 
 ---
 
+## Machine Learning Integration
+
+AirShield features a predictive intelligence layer that forecasts air quality 30 minutes into the future.
+
+### Architecture
+- **Model Hosting**: The machine learning model is hosted on a separate specialized inference server (`https://airsheild-ml.onrender.com/predict`).
+- **Data Flow**:
+  1. Frontend fetches live sensor data from Backend (`/aqi`).
+  2. Frontend sends live metrics (`temp`, `humidity`, `mq135`, `pm25`) to Backend (`/predict`).
+  3. Backend calculates the **target time** (currentTime + 30 mins) and extracts the hour.
+  4. Backend forwards all features to the ML Model.
+  5. The ML Model returns the predicted AQI and status.
+  6. Frontend displays the prediction in the **"AQI IN 30M"** dashboard card.
+
+### Predict Feature Vector
+The model uses 5 input features for prediction:
+- `hour`: The target hour of the day (e.g., if it's 4:15 PM, it predicts for the 16th hour).
+- `temp`: Ambient temperature.
+- `humidity`: Relative humidity percentage.
+- `mq135`: Gas sensor concentration (smoke/CO/benzene).
+- `pm25`: Fine particulate matter concentration.
+
+---
+
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `WAQI_TOKEN` | WAQI API token for world city AQI data |
 | `GNEWS_API_KEY` | GNews API key for pollution news feed |
+| `OWM_API_KEY` | OpenWeatherMap API key - get free key at https://openweathermap.org/api |
+| `AIRSHEILD_MODAL_API` | Endpoint URL for the ML Prediction Model |
 
 Never commit your `.env` file. It is already listed in `.gitignore`.
 
