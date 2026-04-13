@@ -1,19 +1,21 @@
 # AirShield — IoT Air Quality Monitoring Dashboard
 
-A real-time air quality monitoring system built with React, Node.js, and Firebase. Connects to a physical IoT sensor that reads temperature, humidity, and smoke/gas levels, calculates AQI, and displays everything in a neumorphic dashboard UI.
+A real-time air quality monitoring system built with React, Node.js, and Firebase. Connects to a physical IoT sensor (gas, temperature, humidity) at GLA University Mathura, calculates AQI, runs ML-based 30-minute predictions, and displays everything in a neumorphic dashboard UI.
 
 ---
 
 ## Features
 
-- **Live Sensor Dashboard** — Real-time AQI, temperature, humidity from IoT hardware via Firebase
-- **World AQI Ranking** — Top 10 most polluted cities globally, updated every 5 minutes via WAQI API
+- **Live Sensor Dashboard** — Real-time AQI, temperature, humidity from IoT hardware via Firebase (GLA University only — no fake data shown when sensor is offline)
+- **ML AQI Prediction** — 30-minute AQI forecast powered by a deployed ML model (`airsheild-ml.onrender.com`)
+- **World AQI Ranking** — Top 10 most polluted cities globally, live from WAQI API, auto-refreshed every 30 seconds
 - **Pollution News** — Live news feed filtered by air quality keywords via GNews API
-- **Interactive Map** — Leaflet map with sensor node locations and AQI markers
-- **Smart Alerts** — Auto-generated alerts when AQI crosses thresholds (100, 200, 300)
-- **Working Search** — Search pages and sensor locations from the header
-- **History View** — AQI trend visualization and data export
-- **Support Page** — FAQ accordion + contact form (mailto)
+- **Interactive Map** — Leaflet map with all sensor nodes; tap any marker to switch the Dashboard to that location
+- **Smart Alerts** — Auto-generated on startup and on threshold crossings (AQI > 100, 200, 300); badge count on sidebar
+- **Search Bar** — Search pages and locations; shows only name in dropdown, AQI shown only after selection
+- **History View** — Real AQI history chart (1W / 1M / 1Y) with hover tooltips, stats, and CSV/JSON export
+- **Support Page** — FAQ accordion + contact form that sends to email via mailto
+- **Sensor Status** — Live/Offline/Connecting badge on Dashboard; other locations clearly marked as Static Data
 
 ---
 
@@ -28,13 +30,15 @@ A real-time air quality monitoring system built with React, Node.js, and Firebas
 
 **Backend**
 - Node.js + Express
-- Firebase Realtime Database (IoT sensor data)
+- Firebase Realtime Database (IoT sensor source)
 - WAQI API (world city AQI rankings)
 - GNews API (pollution news feed)
-- node-cache (5-minute API response caching)
+- OpenWeatherMap API (AQI history)
+- AirShield ML API (30-min AQI prediction)
+- node-cache (5-minute response caching)
 
-**Hardware**
-- IoT sensor pushing `{ humidity, smoke, temperature }` to Firebase Realtime Database
+**Hardware / IoT**
+- Physical sensor pushing `{ humidity, smoke, temperature }` to Firebase Realtime Database every few seconds
 
 ---
 
@@ -43,14 +47,16 @@ A real-time air quality monitoring system built with React, Node.js, and Firebas
 ```
 airshield/
 ├── backend/
-│   ├── server.js        # Express API server
-│   ├── .env             # API keys (not committed)
+│   ├── server.js          # Express API — all endpoints
+│   ├── .env               # API keys (not committed)
 │   └── package.json
 └── frontend/
     ├── src/
-    │   ├── App.jsx      # Main app + all views
-    │   ├── index.css    # Neumorphic design tokens
+    │   ├── App.jsx        # Entire app — views, state, logic
+    │   ├── index.css      # Neumorphic design tokens
     │   └── main.jsx
+    ├── .env               # VITE_API_URL for local dev
+    ├── .env.production    # VITE_API_URL for production build
     └── package.json
 ```
 
@@ -72,22 +78,30 @@ cd backend
 npm install
 ```
 
-Create a `.env` file:
+Create `backend/.env`:
 
 ```env
-WAQI_TOKEN=your_waqi_token_here
-GNEWS_API_KEY=your_gnews_key_here
-```
+# Firebase Realtime Database (IoT sensor)
+FIREBASE_URL=https://your-project-default-rtdb.firebaseio.com/.json
 
-Get your free API keys:
-- WAQI token: https://aqicn.org/data-platform/token/
-- GNews key: https://gnews.io/
+# WAQI API — https://aqicn.org/data-platform/token/
+WAQI_TOKEN=your_waqi_token_here
+
+# GNews API — https://gnews.io/
+GNEWS_API_KEY=your_gnews_key_here
+
+# OpenWeatherMap API — https://openweathermap.org/api
+OWM_API_KEY=your_owm_key_here
+
+# AirShield ML Model
+AIRSHEILD_MODAL_API=https://airsheild-ml.onrender.com/predict
+```
 
 Start the backend:
 
 ```bash
 node server.js
-# Server runs on http://localhost:3000
+# Runs on http://localhost:3000
 ```
 
 ### 3. Frontend setup
@@ -95,22 +109,34 @@ node server.js
 ```bash
 cd frontend
 npm install
+```
+
+`frontend/.env` is already configured for local dev:
+
+```env
+VITE_API_URL=http://localhost:3000
+```
+
+Start the frontend:
+
+```bash
 npm run dev
-# App runs on http://localhost:5173
+# Runs on http://localhost:5173
 ```
 
 ---
 
 ## API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/aqi` | Live sensor data from Firebase (AQI, temp, humidity, smoke) |
-| GET | `/world-aqi` | Top 10 most polluted cities globally (cached 5 min) |
-| GET | `/news` | Latest pollution & air quality news (cached 5 min) |
-| POST | `/predict` | Future AQI prediction (next 30 min) using ML model |
+| Method | Endpoint | Description | Cache |
+|--------|----------|-------------|-------|
+| GET | `/aqi` | Live IoT sensor data (AQI, temp, humidity, smoke) | None |
+| GET | `/predict` | 30-min ML AQI prediction using live sensor inputs | None |
+| GET | `/world-aqi` | Top 10 most polluted cities globally | 5 min |
+| GET | `/news` | Latest pollution & air quality news articles | 5 min |
+| GET | `/aqi-history?range=1W\|1M\|1Y` | Historical AQI data for GLA University location | 5 min |
 
-### Sample Response — `/aqi`
+### `/aqi` — Live sensor
 
 ```json
 {
@@ -122,22 +148,38 @@ npm run dev
 }
 ```
 
-### Sample Response — `/world-aqi`
+### `/predict` — ML prediction
+
+```json
+{
+  "predicted_aqi": 147,
+  "status": "Moderate",
+  "alert": false,
+  "inputs": { "hour": 14, "temp": 28.5, "humidity": 27, "mq135": 42, "pm25": 50 },
+  "predicted_at": "2026-04-13T10:00:00.000Z"
+}
+```
+
+### `/world-aqi` — Global ranking
 
 ```json
 {
   "cities": [
-    {
-      "rank": 1,
-      "city": "Karachi",
-      "country": "Pakistan",
-      "countryCode": "pk",
-      "aqi": 161,
-      "status": "Unhealthy",
-      "dominentpol": "pm25"
-    }
+    { "rank": 1, "city": "Karachi", "country": "Pakistan", "countryCode": "pk", "aqi": 161, "status": "Unhealthy" }
   ],
-  "lastUpdated": "2026-04-10T17:00:26.126Z"
+  "lastUpdated": "2026-04-13T10:00:00.000Z"
+}
+```
+
+### `/aqi-history` — Historical data
+
+```json
+{
+  "points": [
+    { "ts": 1775692800, "label": "Thu, Apr 9", "aqi": 175 }
+  ],
+  "range": "1W",
+  "currentAqi": 62
 }
 ```
 
@@ -156,60 +198,70 @@ npm run dev
 
 ---
 
-## Firebase Setup
+## Data Flow
 
-The IoT sensor pushes data to Firebase Realtime Database in this format:
-
-```json
-{
-  "humidity": 27.0,
-  "smoke": 0,
-  "temperature": 28.5
-}
 ```
-
-Update the Firebase URL in `backend/server.js` to point to your own database:
-
-```js
-const FIREBASE_URL = 'https://your-project-default-rtdb.firebaseio.com/.json';
+IoT Sensor → Firebase Realtime DB → /aqi endpoint → Dashboard (GLA only)
+                                  → /predict → ML Model → AQI IN 30M tile
+WAQI API  → /world-aqi → World AQI page
+GNews API → /news      → Pollution News page
+OWM API   → /aqi-history → History page chart
 ```
 
 ---
 
-## Machine Learning Integration
+## Location Logic
 
-AirShield features a predictive intelligence layer that forecasts air quality 30 minutes into the future.
+| Location | Data Source |
+|----------|-------------|
+| GLA University Mathura | Live IoT sensor via Firebase — shows `--` if offline |
+| Dwarkadhish Temple | Static hardcoded data |
+| Prem Mandir, Vrindavan | Static hardcoded data |
+| Mathura Cantt | Static hardcoded data |
 
-### Architecture
-- **Model Hosting**: The machine learning model is hosted on a separate specialized inference server (`https://airsheild-ml.onrender.com/predict`).
-- **Data Flow**:
-  1. Frontend fetches live sensor data from Backend (`/aqi`).
-  2. Frontend sends live metrics (`temp`, `humidity`, `mq135`, `pm25`) to Backend (`/predict`).
-  3. Backend calculates the **target time** (currentTime + 30 mins) and extracts the hour.
-  4. Backend forwards all features to the ML Model.
-  5. The ML Model returns the predicted AQI and status.
-  6. Frontend displays the prediction in the **"AQI IN 30M"** dashboard card.
+Switch locations via the **Map Overview** (tap marker → "View on Dashboard") or the **search bar**.
 
-### Predict Feature Vector
-The model uses 5 input features for prediction:
-- `hour`: The target hour of the day (e.g., if it's 4:15 PM, it predicts for the 16th hour).
-- `temp`: Ambient temperature.
-- `humidity`: Relative humidity percentage.
-- `mq135`: Gas sensor concentration (smoke/CO/benzene).
-- `pm25`: Fine particulate matter concentration.
+---
+
+## Deployment
+
+### Backend (Render / Railway / etc.)
+Set all environment variables from `backend/.env` in your platform's dashboard. Never commit `.env`.
+
+### Frontend (Vercel / Netlify / etc.)
+Before building, set:
+```env
+VITE_API_URL=https://your-deployed-backend.com
+```
+Then build:
+```bash
+cd frontend && npm run build
+```
 
 ---
 
 ## Environment Variables
 
-| Variable | Description |
-|----------|-------------|
-| `WAQI_TOKEN` | WAQI API token for world city AQI data |
-| `GNEWS_API_KEY` | GNews API key for pollution news feed |
-| `OWM_API_KEY` | OpenWeatherMap API key - get free key at https://openweathermap.org/api |
-| `AIRSHEILD_MODAL_API` | Endpoint URL for the ML Prediction Model |
+| Variable | Where | Description |
+|----------|-------|-------------|
+| `FIREBASE_URL` | backend | Firebase Realtime DB URL (IoT data source) |
+| `WAQI_TOKEN` | backend | WAQI API token for world AQI rankings |
+| `GNEWS_API_KEY` | backend | GNews API key for pollution news |
+| `OWM_API_KEY` | backend | OpenWeatherMap key for AQI history |
+| `AIRSHEILD_MODAL_API` | backend | ML model prediction endpoint URL |
+| `VITE_API_URL` | frontend | Backend base URL (localhost in dev, deployed URL in prod) |
 
-Never commit your `.env` file. It is already listed in `.gitignore`.
+---
+
+## Auto-Refresh Intervals
+
+| Data | Interval |
+|------|----------|
+| Live sensor (IoT) | 30 seconds |
+| ML prediction | 30 seconds |
+| World AQI ranking | 5 minutes (cached) |
+| Pollution news | 5 minutes (cached) |
+| AQI history | On tab switch (cached 5 min) |
 
 ---
 
