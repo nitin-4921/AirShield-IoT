@@ -305,12 +305,12 @@ app.post('/predict', async (req, res) => {
         });
     } catch (error) {
         console.error('Error during prediction:', error.message);
-        res.status(500).json({ error: 'Failed to predict AQI: ' + error.message });
+        res.status(500).json({ error: 'Failed to Predict AQI: ' + error.message });
     }
 });
 
 
-const Port = 3000;
-app.listen(Port, () => {
-    console.log(`Backend server running on http://localhost:${Port}`);
+const PORT = 3000;
+app.listen(PORT, () => {
+    console.log(`Backend server running on http://localhost:${PORT}`);
 });
